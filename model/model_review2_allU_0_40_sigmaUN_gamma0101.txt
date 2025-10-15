@@ -1,0 +1,254 @@
+## pooled LC-type model with 1-3 PCs
+## smoothing parameters through time with non-informative priors
+model{
+
+
+
+
+#  model ######
+
+
+
+
+ for (a in 1:X){ #age
+   for (t in 1:T){ #time
+     for (e in 1:S){ #state
+       for (c in 1:n.a){ #counties within state
+         
+         # correct the sd definition : 
+         
+          log.INPUT.atce[a,t,c,e] ~ dnorm(logmx.atce[a,t,c,e], tau.LogLin.tce[t,c,e])
+          
+          log.INPUT.atce_SIM[a,t,c,e]  ~ dnorm(logmx.atce[a,t,c,e], tau.LogLin.tce[t,c,e])
+
+         
+       }
+     }  
+   }
+ }
+ 
+ 
+
+   for (t in 1:T){ #time
+     for (e in 1:S){ #state
+       for (c in 1:n.a){ #counties within state
+       
+        # tau.LogLin.tce[t,c,e] <- pow(sigma.LogLin.tce[t,c,e],-2)
+        # sigma.LogLin.tce[t,c,e] ~ dunif(0,10)
+
+         tau.LogLin.tce[t,c,e]  ~ dgamma(0.1,0.1) # vague precision parameter
+         sigma.LogLin.tce[t,c,e] <- 1/sqrt(tau.LogLin.tce[t,c,e])
+               
+               
+     
+          # CHANGE 2205   
+         # tau.LogLin.tce[t,c,e] <- pow(sigma.LogLin.tce[t,c,e], -2) # vague precision parameter
+        #  sigma.LogLin.tce[t,c,e] ~ dunif(0,40)
+
+
+
+            }
+          }
+        }
+
+#}
+
+
+
+
+
+  for (a in 1:X){ #age
+    for (t in 1:T){
+      for (e in 1:S){
+        for (c in 1:n.a){
+        
+        
+        logmx.atce[a,t,c,e] ~ dnorm( beta.ate[a,t,e,1]*Yx[a,e,1] + 
+                                     beta.ate[a,t,e,2]*Yx[a,e,2] +
+                                     beta.ate[a,t,e,3]*Yx[a,e,3] + 
+                                     u.ace[a,c,e]+
+                                     nu.te[t,e], 
+                                     
+                                     tauUN.e[a,e])
+                                     
+ 
+
+        }
+      }
+    }
+  }
+  
+
+
+  
+    for (t in 1:T){ #time
+      for (e in 1:S){ #state
+          nu.te[t,e]  ~ dnorm(0, tau.DHS.te[t,e])
+              }
+            }
+
+
+
+
+  
+    for (t in 1:T){ #time
+      for (e in 1:S){ #state
+        for (c in 1:n.a){ #counties within state
+        
+                                         
+
+                                 log.sigma.DHS.tce.INPUT[t,c,e] ~ dnorm(log.sigma.DHS.te[t,e], tau.u.DHSte[t,e]) 
+                                 
+                                 log.sigma.DHS.tce.SIM[t,c,e] ~ dnorm(log.sigma.DHS.te[t,e], tau.u.DHSte[t,e]) 
+
+           
+           
+           }
+         }
+      }  
+  
+  
+  
+  
+     for (t in 1:T){ #time
+       for (e in 1:S){ #state
+
+   #   sigma.u.DHS.te[t,e] <- 1/sqrt(tau.u.DHSte[t,e])
+   #   tau.u.DHSte[t,e] ~ dgamma(0.01,0.01)
+     
+    # CHANGE2205 
+     tau.u.DHSte[t,e] <- pow(sigma.u.DHS.te[t,e],-2)
+     sigma.u.DHS.te[t,e] ~ dunif(0,40)
+
+     tau.DHS.te[t,e] <- pow(sigma.DHS.te[t,e],-2)
+      
+      
+     #CHANGE 2205
+     sigma.DHS.te[t,e] <- exp(log.sigma.DHS.te[t,e])
+     #log.sigma.DHS.te[t,e] ~ dnorm(0, 0.001)
+     log.sigma.DHS.te[t,e] ~ dnorm(0, 1)
+   
+
+
+
+    #  sigma.DHS.te[t,e] <- exp(log.sigma.DHS.te[t,e])
+    #  log.sigma.DHS.te[t,e] <- log(1/inv.sigma.DHS.te[t,e])
+    #  inv.sigma.DHS.te[t,e] ~ dgamma(0.01, 0.01)
+
+           
+   #    tau.DHS.te[t,e] <- pow(sigma.DHS.te[t,e],-2)
+   #    sigma.DHS.te[t,e] ~ dlnorm(tau.pr.DHS.te[e],1) 
+                                                                                            
+                  }
+          }
+      
+  
+  
+ 
+   #   for (t in 1:T){ #time
+   #    for (e in 1:S){ #state
+   #                    nu.t.te[t,e] ~  dgamma(0.01,0.01) 
+   #                } }
+  
+  
+
+
+  
+# priors
+ # for (t in 1:T){ #time
+     for (e in 1:S){
+          for(a in 1:X){  
+          
+           # tauUN.e[a,e] <- pow(sdUN.e[a,e],-2)
+           # sdUN.e[a,e] ~ dunif(0,100)
+            
+           #CHANGE 2205
+                  tauUN.e[a,e] ~ dgamma(0.1,0.1) # vague precision parameter
+                  sdUN.e[a,e] <- 1/sqrt(tauUN.e[a,e])
+            
+                  #tauUN.e[a,e] <- pow(sdUN.e[a,e],-2) # vague precision parameter
+                  #sdUN.e[a,e] ~ dunif(0,40)
+            
+          }
+        }
+     #    }  
+
+  
+  
+  
+  
+#  for (e in 1:S){
+#      for (c in 1:n.a){
+#              for(t in 1:T){
+#         tau.logLin.tce.INPUT[t,c,e] <- pow(sigma.logLin.tce.INPUT[t,c,e],-2)
+#        }
+#      }
+#    }
+
+
+  
+  for (e in 1:S){
+      for (a in 1:X){
+        for(p in 1:P){
+          for(t in 1:T){
+            beta.ate[a,t,e,p] ~ dnorm(mu.beta[t,e,p], tau.beta[t,e,p])
+          }
+        }
+      }
+    
+    
+      for(t in 1:T){
+         for(p in 1:P){
+        tau.beta[t,e,p] <- pow(sigma.beta[t,e,p], -2)
+        sigma.beta[t,e,p] ~ dunif(0,40) #doubled the variance
+        
+               }
+             }
+           }
+  
+  
+  
+  for(e in 1:S){
+      for (c in 1:n.a){
+        for(a in 1:X){
+          u.ace[a,c,e] ~ dnorm(0, tau.u[a,e])
+        }
+      }
+  
+   
+   
+   
+    
+    for(t in 1:2){
+      
+      for(p in 1:P){
+        mu.beta[t,e,p] ~ dnorm(0, tau.mu[e,p])
+      }
+      
+      
+    }
+    for(t in 3:(T)){
+      
+      for(p in 1:P){
+        mu.beta[t,e,p] ~ dnorm(2*mu.beta[t-1,e,p] - mu.beta[t-2,e,p], tau.mu[e,p])
+      }
+      
+    }
+    
+    for(p in 1:P){
+      tau.mu[e,p] <- pow(sigma.mu[e,p], -2)
+      sigma.mu[e,p] ~ dunif(0,40) #doubled the variance
+    }
+    
+      for(a in 1:X){
+        tau.u[a,e] <- pow(sigma.u[a,e], -2)
+        sigma.u[a,e] ~ dunif(0,40) 
+      }
+  } 
+    
+
+    
+    
+  
+  
+}

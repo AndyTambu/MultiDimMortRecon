@@ -2,7 +2,7 @@
 
 This repository contains code and materials for the paper:
 
-**"Reconstructing Education-Specific Mortality Rates Using a Hierarchical Bayesian Model"**
+**"Bayesian multi-dimensional mortality reconstruction"**
 
 ---
 

@@ -1,6 +1,26 @@
-# <<Paper's model running>>   ----
+# ============================================================
+# <<Paper's model running>> 
+#
+# Workflow:
+#   1. Libraries
+#   2. Load and prepare input data
+#   3. Build arrays for JAGS (deaths, populations, log-mx)
+#   4. Variance inputs (from DHS + log-linear)
+#   5. Log-mx inputs
+#   6. Principal components (PCSs)
+#   7. Priors for PC distributions
+#   8. Collect all data for JAGS
+#   9. Parameters to monitor
+#  10. Run model
+#  11. Convergence checks
+#  12. Results extraction (logmx, u.ace, sigma.u, nu.te, etc.)
+#  13. Visualizations (country plots, caterpillar plots)
+# ============================================================
 
-# libs and functions ####
+
+# ------------------------------------------------------------
+# 1. Libraries ####
+# ------------------------------------------------------------
 library(tidyverse)
 library(rjags)
 library(R2jags)
@@ -8,375 +28,263 @@ library(latex2exp)
 library(reshape2)
 
 
-
-## the input file "d" ####
-
+# ------------------------------------------------------------
+# 2. Input file "d" ####
+# ------------------------------------------------------------
+# this is the d coming from d_profile_specific_construction.R
 
 d <- read.csv('d_DHS_1519_Recoded_loglin_country_time_specific.csv') %>% 
-  mutate(log.mx = log(mx)) 
-
-d <- d %>% filter(sex == 'F') %>% select(-sex)
-
-d <- d %>% filter(year %in% c(1978, 1979,seq(1980,2020, by = 5)))
+  mutate(log.mx = log(mx)) %>% 
+  filter(sex == 'F') %>% 
+  select(-sex) %>% 
+  filter(year %in% c(1978, 1979, seq(1980,2020, by = 5)))
 
 d %>% distinct(year)
 
-
 # some renaming for the sake of clarity
-
 colnames(d)[1] <- 'country'
 colnames(d)[2] <- 'edu.att'
-
 colnames(d)[3] <- 'age_group'
-
 colnames(d)[6] <- 'pop'
 colnames(d)[7] <- 'age'
 
-# get the meta data about unique age groups, years and counties. 
-
+# meta data about unique groups
 age_groups <- unique(d$age_group)
-ages <- c(seq(15, 85, by = 5))
-years <- unique(d$year)
-countries <- unique(d$country)
+ages       <- c(seq(15, 85, by = 5))
+years      <- unique(d$year)
+countries  <- unique(d$country)
 educations <- unique(d$edu.att)
 
-# data preparation in JAGS format ####
 
+# ------------------------------------------------------------
+# 3. Data preparation in JAGS format ####
+# ------------------------------------------------------------
+## Arrays of dimension (age x time x country x education)
 
-## Get the data into JAGS format, i.e. arrays of dimension age x time x nation x education
-
-
+# --- Total mortality logMx.atc (age x time x country) ----
 logMx.atc <- array(NA, c(length(age_groups), length(years), length(countries)))
 
-
-for(j in 1:length(years)){j
-  this_value <- as.matrix(d %>% 
-                            filter(year == years[j]) %>% 
-                            mutate(log.mx.tot = log(mx.tot)) %>% 
-                            
-                            distinct(country, age, log.mx.tot) %>% 
-                            spread(country, log.mx.tot) %>% 
-                            select(-age))
+for (j in 1:length(years)) {
+  this_value <- as.matrix(
+    d %>% 
+      filter(year == years[j]) %>% 
+      mutate(log.mx.tot = log(mx.tot)) %>% 
+      distinct(country, age, log.mx.tot) %>% 
+      spread(country, log.mx.tot) %>% 
+      select(-age)
+  )
   these_countries <- colnames(this_value)
-  for(k in 1:length(these_countries)){
+  for (k in 1:length(these_countries)) {
     logMx.atc[,j,which(countries==these_countries[k])] <- this_value[,k]
   }
 }
 
-
-y.atce <- array(NA, c(length(age_groups), length(years), length(countries), length(educations)))
+# --- Education-specific deaths & populations (y.atce, pop.atce) ----
+y.atce   <- array(NA, c(length(age_groups), length(years), length(countries), length(educations)))
 pop.atce <- array(NA, c(length(age_groups), length(years), length(countries), length(educations)))
 
-
-for (z in 1:length(educations))
-{
-  for(j in 1:length(years)){
-    this_value <- as.matrix(d %>% filter(year == years[j],edu.att ==educations[z] ) %>% select(country, age, deaths.new) %>% spread(country, deaths.new) %>% select(-age))
-    this_pop <- as.matrix(d %>% filter(year == years[j],edu.att ==educations[z] ) %>% select(country,age, pop) %>% spread(country, pop) %>% select(-age))
-    these_countries <- colnames(this_value)
+for (z in 1:length(educations)) {
+  for (j in 1:length(years)) {
+    this_value <- as.matrix(
+      d %>% filter(year == years[j], edu.att == educations[z]) %>% 
+        select(country, age, deaths.new) %>% spread(country, deaths.new) %>% select(-age)
+    )
+    this_pop <- as.matrix(
+      d %>% filter(year == years[j], edu.att == educations[z]) %>% 
+        select(country, age, pop) %>% spread(country, pop) %>% select(-age)
+    )
+    these_countries     <- colnames(this_value)
     these_countries_pop <- colnames(this_pop)
-    for(k in 1:length(these_countries)){
+    for (k in 1:length(these_countries)) {
       y.atce[,j,which(countries==these_countries[k]),which(educations==educations[z])] <- this_value[,k]
     }
-    for(l in 1:length(these_countries_pop)){
+    for (l in 1:length(these_countries_pop)) {
       pop.atce[,j,which(countries==these_countries_pop[l]),which(educations==educations[z])] <- this_pop[,l]
     }
   }
-}    
+}
 
 
+# ------------------------------------------------------------
+# 4. Variances ####
+# ------------------------------------------------------------
 
+# --- Log-linear model results ----
+log_lin_results <- read.csv('./data/log_lin_results.csv') %>%
+  mutate(edu.att = factor(
+    recode(edu.att,
+           'secondary.higher' = 'more.than.primary',
+           'noEdu.primary'    = "no.edu.primary"),
+    levels = c('no.edu.primary','more.than.primary'))
+  )
 
+# --- DHS sigma values ----
+DHS_sigma_values_estimates_withNAs <- read.csv('./data/DHS_sigma_values_estimates_withNAs.csv')
 
-
-## the variances
-
-
-log_lin_results <-
-  read.csv(file = './data/log_lin_results.csv') %>%
-  mutate(edu.att = factor(recode(edu.att,'secondary.higher' = 'more.than.primary',
-                                 'noEdu.primary' = "no.edu.primary"),
-                          levels = c('no.edu.primary','more.than.primary')))
-
-# visualise
-# 
-# log_lin_results  %>%
-#   filter(year %in% seq(1980, 2015, by = 5), sex == 'F') %>%
-#   ggplot(aes(x = year, y = mu, color = edu.att))+
-#   geom_point(aes(group = interaction(geo, edu.att, year)))+
-#   facet_wrap(~geo)
-
-
-
-
-
-
-DHS_sigma_values_estimates_withNAs <- read.csv(file = './data/DHS_sigma_values_estimates_withNAs.csv')
-
-
-sigma_values_estimates <- read.csv(file = './data/DHS_sigma_values_estimates_withNAs.csv') %>% 
+sigma_values_estimates <- DHS_sigma_values_estimates_withNAs %>% 
   tibble() %>% 
-  mutate(edu.att = recode(edu.att, no.edu.primary = "noEdu.primary")) 
+  mutate(edu.att = recode(edu.att, no.edu.primary = "noEdu.primary"))
 
+sigma.DHS.tce.INPUT <- array(NA, c(length(years), length(countries), length(educations)))
 
-sigma.DHS.tce.INPUT <- array(NA, c(length(years),length(countries),length(educations)))
-
-
-for(z in 1:length(educations)){ 
-  for(j in 1:length(years)){ 
+for (z in 1:length(educations)) {
+  for (j in 1:length(years)) {
     this_values <- pull(
-      
-      
       d %>% 
-        left_join(sigma_values_estimates %>% 
-                    filter(edu.att != 'tot') %>%
-                    mutate(edu.att = factor(recode(edu.att,'secondary.higher' = 'more.than.primary', 
-                                                   'noEdu.primary' = "no.edu.primary"), 
-                                            levels = c('no.edu.primary','more.than.primary')))
-                  , by = c('country', 'edu.att', 'year')) %>% 
-        filter(year == years[j], edu.att == educations[z], age_group == "15-19") %>% 
-        # group_by(state, year) %>% 
-        # mutate(log.mx = ifelse(!is.na(log.mx), log.mx, mean(log.mx, na.rm = T))) %>% 
-        select(sigma))
-    
+        left_join(
+          sigma_values_estimates %>% 
+            filter(edu.att != 'tot') %>%
+            mutate(edu.att = factor(
+              recode(edu.att,
+                     'secondary.higher' = 'more.than.primary',
+                     'noEdu.primary'    = "no.edu.primary"),
+              levels = c('no.edu.primary','more.than.primary'))
+            ),
+          by = c('country','edu.att','year')
+        ) %>%
+        filter(year == years[j], edu.att == educations[z], age_group == "15-19") %>%
+        select(sigma)
+    )
     sigma.DHS.tce.INPUT[j,,z] <- this_values
-    
-    
   }
 }
 
-
-
-sigma.log.lin <- 
-  log_lin_results %>% 
-  rename(sigma_LogLin = sigma) %>% 
-  filter(sex == 'F') %>% 
+# --- Combine LogLin + DHS variance info ----
+sigma.log.lin <- log_lin_results %>%
+  rename(sigma_LogLin = sigma) %>%
+  filter(sex == 'F') %>%
   left_join(
-    DHS_sigma_values_estimates_withNAs %>% 
-      tibble() %>% 
-      filter(edu.att != 'tot')  
-    , by = c('geo' = 'country', 'edu.att', 'year'))
+    DHS_sigma_values_estimates_withNAs %>% tibble() %>% filter(edu.att != 'tot'),
+    by = c('geo' = 'country', 'edu.att', 'year')
+  )
 
+sigma.logLin.tce.INPUT <- array(NA, c(length(years), length(countries), length(educations)))
 
-
-
-
-
-
-sigma.logLin.tce.INPUT <- array(NA, c(length(years),length(countries),length(educations)))
-
-
-for(z in 1:length(educations)){ 
-  for(j in 1:length(years)){    
+for (z in 1:length(educations)) {
+  for (j in 1:length(years)) {
     this_values <- pull(
-      
       sigma.log.lin %>% 
-        # filter(geo  !=  "Palestine, State of"  ) %>% 
         filter(year == years[j], edu.att == educations[z], age.group == "15-19") %>% 
-        # group_by(state, year) %>% 
-        # mutate(log.mx = ifelse(!is.na(log.mx), log.mx, mean(log.mx, na.rm = T))) %>% 
-        select(sigma_LogLin))
-    
+        select(sigma_LogLin)
+    )
     sigma.logLin.tce.INPUT[j,,z] <- this_values
-    
-    
   }
 }
 
 
-
-
-# the log mortalities inputs ####
-
-
+# ------------------------------------------------------------
+# 5. Log mortalities inputs ####
+# ------------------------------------------------------------
 log.INPUT.atce <- array(NA, c(length(age_groups), length(years), length(countries), length(educations)))
 
-
-for (z in 1:length(educations))
-{
-  for(j in 1:length(years)){
-    this_value <- as.matrix(d %>% filter(year == years[j],edu.att ==educations[z] ) %>% select(country, age, log.mx) %>% spread(country, log.mx) %>% select(-age))
+for (z in 1:length(educations)) {
+  for (j in 1:length(years)) {
+    this_value <- as.matrix(
+      d %>% filter(year == years[j], edu.att == educations[z]) %>%
+        select(country, age, log.mx) %>% spread(country, log.mx) %>% select(-age)
+    )
     these_countries <- colnames(this_value)
-    for(k in 1:length(these_countries)){
+    for (k in 1:length(these_countries)) {
       log.INPUT.atce[,j,which(countries==these_countries[k]),which(educations==educations[z])] <- this_value[,k]
     }
   }
-}    
+}
 
 
-
-
-# principal components ----
-
-
+# ------------------------------------------------------------
+# 6. Principal components (PCSs) ----
+# ------------------------------------------------------------
 pcs <- array(NA, c(length(age_groups), length(educations), 3))
 
 pcs[,1,] <- as.matrix(read.csv("./data/pcs_lower_cluster1_Female.csv")[1:15,1:3])
 pcs[,2,] <- as.matrix(read.csv("./data/pcs_midHigh_cluster1_Female.csv")[1:15,1:3])
 
-
-# renaming for the model 
-Yx = pcs
-
+# rename for the model
+Yx <- pcs
 
 
-
-
-# the distributions from which we took the pcs
+# ------------------------------------------------------------
+# 7. Priors for PC distributions ----
+# ------------------------------------------------------------
 estimated_normals_2edu_groups <- read.csv("./data/estimated_normals_2edu_groups.csv")
 
-
 sdUN.e.INPUT <- array(NA, c(length(age_groups), length(educations)))
+sdUN.e.INPUT[,1] <- estimated_normals_2edu_groups %>% filter(in.which.group == 'lower')   %>% pull(mod_est_sd)
+sdUN.e.INPUT[,2] <- estimated_normals_2edu_groups %>% filter(in.which.group == 'midHigh') %>% pull(mod_est_sd)
 
-sdUN.e.INPUT[,1] <- estimated_normals_2edu_groups %>% filter(in.which.group == 'lower') %>%  pull(mod_est_sd)
-sdUN.e.INPUT[,2] <- estimated_normals_2edu_groups %>% filter(in.which.group == 'midHigh') %>%  pull(mod_est_sd)
-
-sdUN.e.INPUT %>% dim()
-
-
-
-log.sigma.DHS.tce.INPUT <- log(sigma.DHS.tce.INPUT)
+log.sigma.DHS.tce.INPUT    <- log(sigma.DHS.tce.INPUT)
 log.sigma.logLin.tce.INPUT <- log(sigma.logLin.tce.INPUT)
 
 
-# here we collect all the jags data 
-
+# ------------------------------------------------------------
+# 8. Collect all JAGS data ####
+# ------------------------------------------------------------
 jags.data <- list(
-  
-  
-  log.sigma.DHS.tce.INPUT = log.sigma.DHS.tce.INPUT,
-  sigma.DHS.tce.INPUT = sigma.DHS.tce.INPUT,
-  
-  
-  
+  log.sigma.DHS.tce.INPUT    = log.sigma.DHS.tce.INPUT,
+  sigma.DHS.tce.INPUT        = sigma.DHS.tce.INPUT,
   log.sigma.logLin.tce.INPUT = log.sigma.logLin.tce.INPUT,
-  sigma.logLin.tce.INPUT = sigma.logLin.tce.INPUT,
-  
-  
-  
-  
-  pop.atce = pop.atce,
-  logMx.atc = logMx.atc,
+  sigma.logLin.tce.INPUT     = sigma.logLin.tce.INPUT,
+  pop.atce     = pop.atce,
+  logMx.atc    = logMx.atc,
   log.INPUT.atce = log.INPUT.atce,
   sdUN.e.INPUT = sdUN.e.INPUT,
   S = length(educations), 
   X = length(age_groups), 
   'T' = length(years), 
-  n.a=length(countries),
-  P=3,
-  Yx = Yx
+  n.a = length(countries),
+  P   = 3,
+  Yx  = Yx
 )
 
 
-
-
-
-# countriy                             region 
-# 1  "Albania"                          1        
-# 2   "Armenia"                          2
-# 3  "Azerbaijan"                       2  
-# 4   "Bosnia and Herzegovina"           1
-# 5   "Egypt"                            3       
-# 6   "Georgia"                          2
-# 7   "Jordan"                           3     
-# 8 "Lebanon"                          3  
-# 9  "North Macedonia"                   1 
-# 10  "Montenegro"                        1
-# 11  "Palestine, State of"               3
-# 12  "Tunisia"                           3
-# 13  "Turkey"                            2
-# 
-# 
-# 
-# geo        region 
-# <chr>      <fct>  
-# 1 Albania    region1
-# 2 Armenia    region2
-# 3 Azerbaijan region2
-# 4 Egypt      region3
-# 5 Jordan     region3
-# 6 Tunisia    region3
-# 7 Turkey     region2
-
-
-# parameters to monitor ####
+# ------------------------------------------------------------
+# 9. Parameters to monitor ####
+# ------------------------------------------------------------
 parnames <- c(
-              'beta.ate',
-              'u.ace',
-              'logmx.atce',
-              'sigma.beta',
-              'mu.beta',
-              'sigma.u',
-              'sigma.mu',
-              'sigma.DHS.te',
-              'sig.u.DHSte',
-              'sdUN.e',
-              'logmx.PCS.atce',
-              'sigma.DHS.te',
-              'sigma.u.DHS.te',
-              'nu.te',
-              'u.ace',
-              'sigma.LogLin.tce',
-              
-              'logmx.atce_COPY',
-              'mu.DHS.te',
-              
-              
-              'sigma.LogLin.te',
-              'mu.log.sigma.LogLin.te'
-              # ,
-              # 'r.unif',
-              # 'lambda.unif'
-              )
+  'beta.ate','u.ace','logmx.atce','sigma.beta','mu.beta','sigma.u','sigma.mu',
+  'sigma.DHS.te','sig.u.DHSte','sdUN.e','logmx.PCS.atce','sigma.DHS.te','sigma.u.DHS.te',
+  'nu.te','u.ace','sigma.LogLin.tce','logmx.atce_COPY','mu.DHS.te',
+  'sigma.LogLin.te','mu.log.sigma.LogLin.te'
+  # ,'r.unif','lambda.unif'
+)
 
 
-
-# run model ####
-
-
-
-# list.files('./Review_1/models')
-
-
-
-
-
+# ------------------------------------------------------------
+# 10. Run model ####
+# ------------------------------------------------------------
 time_taken <- system.time({
-  
   mod_quick_test <- R2jags::jags(
     n.chains = 3,
     data = jags.data,
-    parameters.to.save=parnames, 
-    n.burnin = 35000,
-    n.iter = 125000,
+    parameters.to.save = parnames, 
+    n.burnin = 50000,
+    n.iter   = 150000,
     model.file = "./model/model_review2_allU_0_40_sigmaUN_gamma0101.txt"
-    #model.file = "./Review_1/models/model_3_estimateSIGMAloglin&SIGMAun.txt")
-    #model.file = "./Review_1/models/model_3_tests_REVIEW2.txt"
-    )
-
+    # alternatives:
+    # "./Review_1/models/model_3_estimateSIGMAloglin&SIGMAun.txt"
+    # "./Review_1/models/model_3_tests_REVIEW2.txt"
+  )
 })
-
-
 time_taken
 
 
-
-# check for the convergence. 
-
+# ------------------------------------------------------------
+# 11. Convergence checks ####
+# ------------------------------------------------------------
 max(mod_quick_test$BUGSoutput$summary[,"Rhat"])
 mod_quick_test$BUGSoutput$summary[,"Rhat"] %>%
-  as.data.frame() %>%
-  rownames_to_column() %>%
-  tibble() %>% View()
+  as.data.frame() %>% rownames_to_column() %>% tibble() %>% View()
 
 mod <- mod_quick_test
-
 mod$model
-mod$BUGSoutput$summary[,"Rhat"] %>% density() %>%  plot()
+mod$BUGSoutput$summary[,"Rhat"] %>% density() %>% plot()
 
-# pull out the posterior samples
+# pull out posterior samples
 mcmc.array <- mod$BUGSoutput$sims.array
 mcmc.array %>% dim()
+
+
+
 
 
 # res ----

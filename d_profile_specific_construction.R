@@ -3,7 +3,7 @@
 #
 # Purpose:
 #   In this file we report the steps to define the new input file
-#   using the new approach for total mortality splitting.
+#   using the approach for total mortality splitting.
 #
 # Workflow:
 #   1. Libraries

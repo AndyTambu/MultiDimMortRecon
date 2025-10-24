@@ -21,13 +21,13 @@ library(wcde)       # World Countries Database on Education
 
 # --- Load WPP female and male abridged life tables ----
 WPP.data.F <- read_excel(
-  '...../WPP2019_MORT_F17_3_ABRIDGED_LIFE_TABLE_FEMALE.xlsx', 
+  './data/WPP2019/WPP2019_MORT_F17_3_ABRIDGED_LIFE_TABLE_FEMALE.xlsx', 
   skip = 16
 ) %>% 
   mutate(sex = 'F')
 
 WPP.data.M <- read_excel(
-  '...../WPP2019_MORT_F17_2_ABRIDGED_LIFE_TABLE_MALE.xlsx', 
+  './data/WPP2019/WPP2019_MORT_F17_2_ABRIDGED_LIFE_TABLE_MALE.xlsx', 
   skip = 16
 ) %>% 
   mutate(sex = 'M')

@@ -1,8 +1,28 @@
 # MultiDimMortRecon
 
+# Bayesian Multi-Dimensional Mortality Reconstruction
+
 This repository contains code and materials for the paper:
 
-**"Bayesian multi-dimensional mortality reconstruction"**
+> **"Bayesian multi-dimensional mortality reconstruction"**
+
+**R version:** 4.4.0 (2024-04-24)
+
+---
+
+## Authors
+
+**Andrea Tamburini**
+International Institute for Applied Systems Analysis, Wittgenstein Centre for Demography and Global Human Capital (IIASA, OeAW, University of Vienna), Laxenburg, Austria.
+📧 [tamburini@iiasa.ac.at](mailto:tamburini@iiasa.ac.at)
+
+**Arkadiusz Wiśniowski**
+Social Statistics Department, The University of Manchester, Manchester, United Kingdom.
+📧 [a.wisniowski@manchester.ac.uk](mailto:a.wisniowski@manchester.ac.uk)
+
+**Dilek Yildiz**
+International Institute for Applied Systems Analysis, Wittgenstein Centre for Demography and Global Human Capital (IIASA, OeAW, University of Vienna), Laxenburg, Austria.
+📧 [yildiz@iiasa.ac.at](mailto:yildiz@iiasa.ac.at)
 
 ---
 
